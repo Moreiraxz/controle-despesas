@@ -8,12 +8,45 @@ const { init, get, all, run } = require("./db");
 const { auth, requireAdmin } = require("./middlewareAuth");
 
 const app = express();
+
+// (bom pra Render/Proxy)
+app.set("trust proxy", 1);
+
 app.use(express.json());
 
-// Libera o front (Live Server)
-app.use(cors({ origin: true, credentials: true }));
+// =========================
+// ✅ CORS (GitHub Pages + Local)
+// =========================
+// Defina no .env (recomendado):
+// CORS_ORIGINS=https://moreiraxx.github.io,http://127.0.0.1:5500,http://localhost:5500
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
 
-// ✅ health check (para não aparecer “Não foi possível obter /”)
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Sem origin: Postman/curl/servidor->servidor
+    if (!origin) return cb(null, true);
+
+    // Se não configurou lista, libera (útil no começo)
+    if (allowedOrigins.length === 0) return cb(null, true);
+
+    // Se origin está na lista, libera
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+
+    // Bloqueia o resto
+    return cb(new Error(`CORS bloqueado para: ${origin}`));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false, // você usa token no header, então não precisa cookies
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+// ✅ health check
 app.get("/", (req, res) => {
   res.send("✅ API online. Use /api/...");
 });
@@ -31,7 +64,6 @@ app.post("/api/auth/login", async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: "Credenciais inválidas" });
 
-  // ✅ token continua simples, mas o middleware vai buscar dados no banco
   const token = jwt.sign(
     { id: user.id },
     process.env.JWT_SECRET,
@@ -55,10 +87,9 @@ app.get("/api/auth/me", auth, async (req, res) => {
 });
 
 // =======================================================
-// ✅ USUÁRIOS (ADMIN) — CADASTRAR / LISTAR / EDITAR / EXCLUIR
+// ✅ USUÁRIOS (ADMIN)
 // =======================================================
 
-// Listar usuários da mesma empresa
 app.get("/api/users", auth, requireAdmin, async (req, res) => {
   const rows = await all(
     "SELECT id, nome, email, role, created_at FROM users WHERE empresa_id = ? ORDER BY id DESC",
@@ -67,7 +98,6 @@ app.get("/api/users", auth, requireAdmin, async (req, res) => {
   res.json({ users: rows });
 });
 
-// Criar usuário (na mesma empresa do admin)
 app.post("/api/users", auth, requireAdmin, async (req, res) => {
   const nome = (req.body?.nome || "").trim();
   const email = (req.body?.email || "").trim().toLowerCase();
@@ -97,7 +127,6 @@ app.post("/api/users", auth, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Editar usuário (nome/role) — mesma empresa
 app.put("/api/users/:id", auth, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const nome = (req.body?.nome || "").trim();
@@ -108,7 +137,6 @@ app.put("/api/users/:id", auth, requireAdmin, async (req, res) => {
 
   const roleFinal = (role === "admin") ? "admin" : "user";
 
-  // só altera se for da mesma empresa
   const target = await get(
     "SELECT id FROM users WHERE id = ? AND empresa_id = ?",
     [id, req.user.empresa_id]
@@ -123,7 +151,6 @@ app.put("/api/users/:id", auth, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Excluir usuário — mesma empresa (não deixa excluir a si mesmo)
 app.delete("/api/users/:id", auth, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
@@ -141,7 +168,7 @@ app.delete("/api/users/:id", auth, requireAdmin, async (req, res) => {
 });
 
 // =======================================================
-// ✅ CADASTROS AUXILIARES (AGORA POR EMPRESA, NÃO POR USER)
+// ✅ CADASTROS AUXILIARES
 // =======================================================
 
 async function listCadastro(table, empresaId) {
@@ -236,7 +263,7 @@ app.put("/api/cadastros/:tipo/:id", auth, async (req, res) => {
 });
 
 // =======================================================
-// ✅ DESPESAS (AGORA POR EMPRESA, NÃO POR USER)
+// ✅ DESPESAS
 // =======================================================
 
 app.post("/api/despesas", auth, async (req, res) => {
@@ -325,10 +352,22 @@ app.delete("/api/despesas/:id", auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ====== START ======
-init().then(() => {
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`✅ Backend rodando em http://localhost:${port}`);
-  });
+// ====== ERROS ======
+app.use((err, req, res, next) => {
+  if (String(err?.message || "").includes("CORS bloqueado")) {
+    return res.status(403).json({ error: err.message });
+  }
+  console.error(err);
+  res.status(500).json({ error: "Erro interno" });
 });
+
+// ====== START ======
+init()
+  .then(() => {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, "0.0.0.0", () => console.log("API on", PORT));
+  })
+  .catch((e) => {
+    console.error("Falha ao iniciar DB/API:", e);
+    process.exit(1);
+  });
