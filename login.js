@@ -4,7 +4,7 @@ const email = document.getElementById("email");
 const password = document.getElementById("password");
 
 // 🔥 Backend fixo local
-const API = "http://127.0.0.1:3000";
+const API = "https://moreiraxz.github.io/controle-despesas/";
 
 function setMsg(text, type) {
   msg.textContent = text || "";
