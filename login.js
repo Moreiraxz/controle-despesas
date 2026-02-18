@@ -3,7 +3,8 @@ const msg  = document.getElementById("msg");
 const email = document.getElementById("email");
 const password = document.getElementById("password");
 
-const API = "http://localhost:3000";
+// 🔥 Backend fixo local
+const API = "http://127.0.0.1:3000";
 
 function setMsg(text, type) {
   msg.textContent = text || "";
@@ -37,22 +38,23 @@ form.addEventListener("submit", async (e) => {
       })
     });
 
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
 
     if (!r.ok) {
       setMsg(data.error || "Falha no login.", "error");
       return;
     }
 
-    // guarda o token (crachá digital)
     localStorage.setItem("token", data.token);
 
     setMsg("Login realizado com sucesso!", "ok");
 
-    // vai para a tela de despesas
-    window.location.href = "despesas.html";
+    setTimeout(() => {
+      window.location.href = "despesas.html";
+    }, 800);
 
   } catch (err) {
-    setMsg("Erro ao conectar no backend. Verifique se o server está rodando.", "error");
+    console.error(err);
+    setMsg("Erro ao conectar no backend.", "error");
   }
 });
